@@ -1,63 +1,132 @@
-const express = require('express');
-const http = require('http');
-const socketIo = require('socket.io');
+require("dotenv").config();
+const express = require("express");
+const http = require("http");
+const mongoose = require("mongoose");
+const cors = require("cors");
+const bcrypt = require("bcrypt");
+const { Server } = require("socket.io");
 
 const app = express();
+app.use(cors({
+  origin: "http://localhost:5173", // अपने React App के URL को allow करो
+  methods: ["GET", "POST", "PUT", "DELETE"],
+  allowedHeaders: ["Content-Type", "Authorization"],
+  credentials: true
+}));
 const server = http.createServer(app);
-const io = socketIo(server,{
-  cors:{
-    origin:"http://localhost:5173"
+ 
+const io = new Server(server, {
+  cors: {
+    origin: "http://localhost:5173", // React frontend ka URL
+    methods: ["GET", "POST"],
+    credentials: true,
+  },
+});
+
+
+app.use(express.json());
+
+// 🟢 MongoDB Connection
+mongoose.connect(process.env.MONGO_URI, {
+  useNewUrlParser: true,
+  useUnifiedTopology: true,
+})
+  .then(() => console.log("MongoDB Connected ✅"))
+  .catch(err => console.log("MongoDB Connection Error ❌:", err));
+
+// 🔹 User Model
+const UserSchema = new mongoose.Schema({
+  username: String,
+  password: String,
+});
+const User = mongoose.model("User", UserSchema);
+
+// 🔹 Chat Model
+const ChatSchema = new mongoose.Schema({
+  sender: String,
+  receiver: String,
+  message: String,
+  timestamp: { type: Date, default: Date.now },
+});
+const Chat = mongoose.model("Chat", ChatSchema);
+
+// 🔹 Signup Route
+app.post("/signup", async (req, res) => {
+  try {
+    const { username, password } = req.body;
+    const hashedPassword = await bcrypt.hash(password, 10);
+    await User.create({ username, password: hashedPassword });
+    res.json({ message: "User created successfully" });
+  } catch (error) {
+    res.status(500).json({ message: "Error signing up", error });
   }
 });
 
-// Add some random users initially
-let users = [
-  { username: 'JohnDoe', socketId: null },
-  { username: 'JaneSmith', socketId: null },
-  { username: 'MikeTyson', socketId: null },
-  { username: 'SaraLee', socketId: null },
-  { username: 'JakePaul', socketId: null }
-];
+// 🔹 Login Route
+app.post("/login", async (req, res) => {
+  try {
+    const { username, password } = req.body;
+    const user = await User.findOne({ username });
+    if (!user) return res.status(400).json({ message: "User not found" });
 
-io.on('connection', (socket) => {
-  console.log('A user connected:', socket.id);
+    const isMatch = await bcrypt.compare(password, user.password);
+    if (!isMatch) return res.status(400).json({ message: "Invalid credentials" });
 
-  // New user joins, add them to the list of users
-  socket.on('setUsername', (username) => {
-    // Check if the username exists
-    const userIndex = users.findIndex(user => user.username === username);
+    res.json({ username, token: "mock-token" });
+  } catch (error) {
+    res.status(500).json({ message: "Login error", error });
+  }
+});
 
-    if (userIndex === -1) {
-      // Add new user and set socketId to the connected socket ID
-      users.push({ username, socketId: socket.id });
-    } else {
-      // Update existing user with their socketId
-      users[userIndex].socketId = socket.id;
+// 🔹 Fetch Users Route
+app.get("/users", async (req, res) => {
+  try {
+    const users = await User.find({}, "username");
+    res.json(users);
+  } catch (error) {
+    res.status(500).json({ message: "Error fetching users", error });
+  }
+});
+
+// 🔹 Fetch Chats Route
+app.get("/chats/:user1/:user2", async (req, res) => {
+  try {
+    const { user1, user2 } = req.params;
+    const chats = await Chat.find({
+      $or: [
+        { sender: user1, receiver: user2 },
+        { sender: user2, receiver: user1 },
+      ],
+    }).sort({ timestamp: 1 });
+
+    res.json(chats);
+  } catch (error) {
+    res.status(500).json({ message: "Error fetching chats", error });
+  }
+});
+
+// 🔹 Socket.io for Real-time Messaging
+io.on("connection", (socket) => {
+  console.log("User connected:", socket.id);
+
+  socket.on("join_chat", (data) => {
+    socket.join(data.room);
+  });
+
+  socket.on("send_message", async (data) => {
+    try {
+      const chat = await Chat.create(data);
+      io.to(data.room).emit("receive_message", chat);
+    } catch (error) {
+      console.error("Error sending message:", error);
     }
-    
-    // Emit user list to all connected clients
-    io.emit('userList', users.map(user => user.username));
-    console.log(`${username} has joined`);
   });
 
-  // Receive message from user and send to specific user by socket ID
-  socket.on('sendMessageToUser', (data) => {
-    const { recipientSocketId, message, sender } = data;
-
-    // Send message to specific user by their socket ID
-    io.to(recipientSocketId).emit('message', { user: sender, message });
-    console.log('Message sent to', recipientSocketId);
-  });
-
-  // User disconnects
-  socket.on('disconnect', () => {
-    // Remove the disconnected user from the list
-    users = users.filter(user => user.socketId !== socket.id);
-    io.emit('userList', users.map(user => user.username));  // Update user list for all clients
-    console.log('A user disconnected');
+  socket.on("disconnect", () => {
+    console.log("User disconnected:", socket.id);
   });
 });
 
-server.listen(3000, () => {
-  console.log('Server is running on http://localhost:3000');
-});
+// 🔹 Start Server
+const PORT = process.env.PORT || 3000;
+server.listen(PORT, () => console.log(`🚀 Server running on port ${PORT}`));
