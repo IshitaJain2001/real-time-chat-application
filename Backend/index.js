@@ -1,5 +1,6 @@
   const express= require('express')
 const cors= require('cors')
+const socketserver= require('socket.io')
   const app= express()
 
   app.use(cors())
@@ -10,4 +11,14 @@ const cors= require('cors')
     res.send("hello")
   })
 
-  app.listen(3000,()=>{})
+const server=   app.listen(3000,()=>{})
+  const io= socketserver(server)
+
+  io.on('connection',(socket)=>{
+    console.log("user connected")
+
+    socket.on('disconnect', () => {
+      console.log('A user disconnected');
+    });
+  })
+
