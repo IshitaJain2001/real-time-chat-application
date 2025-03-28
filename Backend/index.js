@@ -12,7 +12,12 @@ const socketserver= require('socket.io')
   })
 
 const server=   app.listen(3000,()=>{})
-  const io= socketserver(server)
+  const io= socketserver(server,{
+    cors: {
+      origin: 'http://localhost:5173', // Same as your frontend URL
+      methods: ['GET', 'POST'],
+    }
+  })
 
   io.on('connection',(socket)=>{
     console.log("user connected")
