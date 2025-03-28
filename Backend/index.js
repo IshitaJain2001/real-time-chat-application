@@ -16,7 +16,7 @@ const server=   app.listen(3000,()=>{})
 
   io.on('connection',(socket)=>{
     console.log("user connected")
-
+    socket.emit('message', 'Hello from the server!');
     socket.on('disconnect', () => {
       console.log('A user disconnected');
     });
