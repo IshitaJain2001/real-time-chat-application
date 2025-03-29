@@ -9,41 +9,36 @@ export default function ChatApp({ user }) {
   const [room, setRoom] = useState(null);
   const [message, setMessage] = useState("");
   const [messages, setMessages] = useState([]);
-  const messagesEndRef = useRef(null); // Auto-scroll ke liye reference
+  const messagesEndRef = useRef(null);
 
   useEffect(() => {
-    // 🔹 Fetch users from backend
     fetch("http://localhost:3000/users", {
       method: "GET",
-      headers: {
-        "Content-Type": "application/json",
-      },
+      headers: { "Content-Type": "application/json" },
       credentials: "include",
     })
       .then((res) => res.json())
-      .then((data) => {
-        setUsers(data.filter((u) => u.username !== user));
-      })
+      .then((data) => setUsers(data.filter((u) => u.username !== user)))
       .catch((err) => console.error("Error fetching users:", err));
 
-    // 🔹 Listen for incoming messages
-    socket.on("receive_message", (msg) => {
+    const handleMessage = (msg) => {
       setMessages((prev) => [...prev, msg]);
-    });
+    };
 
-    return () => socket.off("receive_message");
+    socket.on("receive_message", handleMessage);
+
+    return () => {
+      socket.off("receive_message", handleMessage);
+    };
   }, [user]);
 
   useEffect(() => {
-    // 🔹 Auto-scroll when new messages arrive
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
   const selectUser = async (selectedUsername) => {
     setSelectedUser(selectedUsername);
     setMessages([]);
-
-    // 🔹 Define room name
     const chatRoom = [user, selectedUsername].sort().join("-");
     setRoom(chatRoom);
 
@@ -55,8 +50,6 @@ export default function ChatApp({ user }) {
       });
       const data = await res.json();
       setMessages(data);
-
-      // 🔹 Join the chat room
       socket.emit("join_chat", { room: chatRoom });
     } catch (err) {
       console.error("Error fetching messages:", err);
@@ -65,20 +58,14 @@ export default function ChatApp({ user }) {
 
   const sendMessage = () => {
     if (!message.trim() || !selectedUser || !room) return;
-
     const chatData = { sender: user, receiver: selectedUser, message, room };
-
-    // 🔹 Send message to server
     socket.emit("send_message", chatData);
-
-    // 🔹 Update UI instantly
     setMessages((prev) => [...prev, chatData]);
     setMessage("");
   };
 
   return (
     <div style={{ padding: "20px", fontFamily: "Arial", display: "flex", gap: "20px" }}>
-      {/* 🔹 Users List */}
       <div style={{ width: "200px", borderRight: "1px solid #ddd", paddingRight: "10px" }}>
         <h2>Users</h2>
         <div style={{ display: "grid", gap: "10px" }}>
@@ -106,13 +93,10 @@ export default function ChatApp({ user }) {
         </div>
       </div>
 
-      {/* 🔹 Chat Section */}
       <div style={{ flex: 1 }}>
         {selectedUser ? (
           <div style={{ border: "1px solid #ddd", borderRadius: "5px", padding: "10px", maxWidth: "400px" }}>
             <h2>Chat with {selectedUser}</h2>
-
-            {/* Messages List */}
             <div
               style={{
                 height: "250px",
@@ -128,13 +112,7 @@ export default function ChatApp({ user }) {
                 <p style={{ textAlign: "center", color: "gray" }}>Start Messaging..</p>
               ) : (
                 messages.map((msg, index) => (
-                  <div
-                    key={index}
-                    style={{
-                      textAlign: msg.sender === user ? "right" : "left",
-                      margin: "5px 0",
-                    }}
-                  >
+                  <div key={index} style={{ textAlign: msg.sender === user ? "right" : "left", margin: "5px 0" }}>
                     <span
                       style={{
                         backgroundColor: msg.sender === user ? "#007bff" : "#f1f1f1",
@@ -152,8 +130,6 @@ export default function ChatApp({ user }) {
               )}
               <div ref={messagesEndRef}></div>
             </div>
-
-            {/* Message Input */}
             <div style={{ display: "flex" }}>
               <input
                 type="text"
