@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { io } from "socket.io-client";
 
-const socket = io("http://localhost:3000");
+const socket = io("http://localhost:3000", { withCredentials: true });
 
 export default function ChatApp({ user }) {
   const [users, setUsers] = useState([]);
@@ -17,8 +17,14 @@ export default function ChatApp({ user }) {
       headers: { "Content-Type": "application/json" },
       credentials: "include",
     })
-      .then((res) => res.json())
-      .then((data) => setUsers(data.filter((u) => u.username !== user)))
+      .then((res) => res.json()) // ✅ Fix: return res.json()
+      .then((data) => {
+        console.log("Fetched Users:", data);
+        if (!Array.isArray(data)) {
+          throw new Error("Unexpected response format");
+        }
+        setUsers(data.filter((u) => u.username !== user));
+      })
       .catch((err) => console.error("Error fetching users:", err));
 
     const handleMessage = (msg) => {
@@ -33,12 +39,11 @@ export default function ChatApp({ user }) {
   }, [user]);
 
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
   }, [messages]);
 
   const selectUser = async (selectedUsername) => {
     setSelectedUser(selectedUsername);
-    setMessages([]);
     const chatRoom = [user, selectedUsername].sort().join("-");
     setRoom(chatRoom);
 
@@ -60,7 +65,6 @@ export default function ChatApp({ user }) {
     if (!message.trim() || !selectedUser || !room) return;
     const chatData = { sender: user, receiver: selectedUser, message, room };
     socket.emit("send_message", chatData);
-    setMessages((prev) => [...prev, chatData]);
     setMessage("");
   };
 
@@ -92,7 +96,6 @@ export default function ChatApp({ user }) {
           )}
         </div>
       </div>
-
       <div style={{ flex: 1 }}>
         {selectedUser ? (
           <div style={{ border: "1px solid #ddd", borderRadius: "5px", padding: "10px", maxWidth: "400px" }}>
@@ -108,26 +111,22 @@ export default function ChatApp({ user }) {
                 borderRadius: "5px",
               }}
             >
-              {messages.length === 0 ? (
-                <p style={{ textAlign: "center", color: "gray" }}>Start Messaging..</p>
-              ) : (
-                messages.map((msg, index) => (
-                  <div key={index} style={{ textAlign: msg.sender === user ? "right" : "left", margin: "5px 0" }}>
-                    <span
-                      style={{
-                        backgroundColor: msg.sender === user ? "#007bff" : "#f1f1f1",
-                        color: msg.sender === user ? "white" : "black",
-                        padding: "8px",
-                        borderRadius: "10px",
-                        display: "inline-block",
-                        maxWidth: "70%",
-                      }}
-                    >
-                      <strong>{msg.sender}:</strong> {msg.message}
-                    </span>
-                  </div>
-                ))
-              )}
+              {messages.map((msg, index) => (
+                <div key={index} style={{ textAlign: msg.sender === user ? "right" : "left", margin: "5px 0" }}>
+                  <span
+                    style={{
+                      backgroundColor: msg.sender === user ? "#007bff" : "#f1f1f1",
+                      color: msg.sender === user ? "white" : "black",
+                      padding: "8px",
+                      borderRadius: "10px",
+                      display: "inline-block",
+                      maxWidth: "70%",
+                    }}
+                  >
+                    <strong>{msg.sender}:</strong> {msg.message}
+                  </span>
+                </div>
+              ))}
               <div ref={messagesEndRef}></div>
             </div>
             <div style={{ display: "flex" }}>

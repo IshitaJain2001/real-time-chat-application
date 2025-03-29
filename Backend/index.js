@@ -1,99 +1,96 @@
-require("dotenv").config();
-
-const express = require("express");
-const http = require("http");
-const { Server } = require("socket.io");
-const cors = require("cors");
-const mongoose = require("mongoose");
+import dotenv from "dotenv";
+dotenv.config();
+import express from "express";
+import cors from "cors";
+import mongoose from "mongoose";
+import { Server } from "socket.io";
+import http from "http";
 
 const app = express();
+app.use(cors({ origin: "http://localhost:5173", credentials: true }));
 const server = http.createServer(app);
 const io = new Server(server, {
   cors: {
     origin: "http://localhost:5173",
-    methods: ["GET", "POST"],
     credentials: true,
   },
 });
 
-// ✅ MongoDB Connection
-if (!process.env.MONGO_URI) {
-  console.error("❌ MongoDB URI not found. Make sure you have a .env file with MONGO_URI.");
-  process.exit(1); // Stop execution if URI is missing
-}
+app.use(cors({ origin: "http://localhost:5173", credentials: true }));
+app.use(express.json());
+
 mongoose
   .connect(process.env.MONGO_URI, { useNewUrlParser: true, useUnifiedTopology: true })
-  .then(() => console.log("✅ MongoDB Connected"))
-  .catch((err) => console.error("❌ MongoDB Connection Failed:", err));
+  .then(() => {
+    console.log("Connected to MongoDB");
+    server.listen(3000, () => {
+      console.log("Server running on port 3000");
+    });
+  })
+  .catch((err) => console.error("MongoDB connection error:", err));
 
-app.use(express.json());
-app.use(cors({ origin: "http://localhost:5173", credentials: true }));
+const userSchema = new mongoose.Schema({
+  username: { type: String, unique: true, required: true },
+});
 
-// ✅ Chat Schema
-const chatSchema = new mongoose.Schema({
-  room: String,
-  sender: String,
-  receiver: String,
-  message: String,
+const messageSchema = new mongoose.Schema({
+  sender: { type: String, required: true },
+  receiver: { type: String, required: true },
+  message: { type: String, required: true },
+  room: { type: String, required: true },
   timestamp: { type: Date, default: Date.now },
 });
 
-const Chat = mongoose.model("Chat", chatSchema);
+const User = mongoose.model("User", userSchema);
+const Message = mongoose.model("Message", messageSchema);
 
-// ✅ Dummy users list
-let users = [
-  { username: "Alice" },
-  { username: "Bob" },
-  { username: "Charlie" },
-];
-
-// ✅ API to get users list
-app.get("/users", (req, res) => {
-  res.json(users);
+app.get("/users", async (req, res) => {
+  try {
+    const users = await User.find({}, "username");
+    res.json(users);
+  } catch (err) {
+    res.status(500).json({ error: "Error fetching users" });
+  }
 });
 
-// ✅ API to get chat messages from MongoDB
-app.get("/chats/:user1/:user2", async (req, res) => {
-  const { user1, user2 } = req.params;
-  const room = [user1, user2].sort().join("-");
-
+app.get("/chats/:user/:selectedUser", async (req, res) => {
+  const { user, selectedUser } = req.params;
+  if (!user || !selectedUser) {
+    return res.status(400).json({ error: "Invalid users" });
+  }
+  const chatRoom = [user, selectedUser].sort().join("-");
   try {
-    const messages = await Chat.find({ room }).sort({ timestamp: 1 });
+    const messages = await Message.find({ room: chatRoom }).sort({ timestamp: 1 });
     res.json(messages);
-  } catch (error) {
-    res.status(500).json({ error: "Error fetching chat messages" });
+  } catch (err) {
+    res.status(500).json({ error: "Error fetching messages" });
   }
 });
 
 io.on("connection", (socket) => {
-  console.log("⚡ A user connected:", socket.id);
+  console.log("User connected: " + socket.id);
 
-  // ✅ User joining a chat room
   socket.on("join_chat", ({ room }) => {
-    socket.join(room);
-    console.log(`👥 User joined room: ${room}`);
+    if (room) {
+      socket.join(room);
+    }
   });
 
-  // ✅ Handling message sending (MongoDB me save karna)
   socket.on("send_message", async (data) => {
     const { sender, receiver, message, room } = data;
-
-    // Create & save message in MongoDB
-    const newMessage = new Chat({ room, sender, receiver, message });
-
+    if (!sender || !receiver || !message || !room) {
+      return;
+    }
     try {
+      const newMessage = new Message({ sender, receiver, message, room });
       await newMessage.save();
-
-      // ✅ Send message to frontend
       io.to(room).emit("receive_message", newMessage);
-    } catch (error) {
-      console.error("❌ Error saving message:", error);
+    } catch (err) {
+      console.error("Error saving message:", err);
     }
   });
 
   socket.on("disconnect", () => {
-    console.log("❌ User disconnected:", socket.id);
+    console.log("User disconnected: " + socket.id);
   });
 });
-
-server.listen(3000, () => console.log("🚀 Server running on port 3000"));
